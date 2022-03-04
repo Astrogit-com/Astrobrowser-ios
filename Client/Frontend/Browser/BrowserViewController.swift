@@ -92,6 +92,7 @@ class BrowserViewController: UIViewController, BrowserViewControllerDelegate {
     var updateDisplayedPopoverProperties: (() -> Void)?
     
     let profile: Profile
+    let braveCore: BraveCoreMain
     let tabManager: TabManager
     let historyAPI: BraveHistoryAPI
     let syncAPI: BraveSyncAPI
@@ -196,6 +197,7 @@ class BrowserViewController: UIViewController, BrowserViewControllerDelegate {
          crashedLastSession: Bool,
          safeBrowsingManager: SafeBrowsing? = SafeBrowsing()) {
         self.profile = profile
+        self.braveCore = braveCore
         self.historyAPI = braveCore.historyAPI
         self.bookmarkManager = BookmarkManager(bookmarksAPI: braveCore.bookmarksAPI)
         self.syncAPI = braveCore.syncAPI
@@ -382,6 +384,10 @@ class BrowserViewController: UIViewController, BrowserViewControllerDelegate {
         screenshotHelper = ScreenshotHelper(tabManager: tabManager)
         tabManager.addDelegate(self)
         tabManager.addNavigationDelegate(self)
+        tabManager.makeWalletProvider = { [weak self] tab in
+            guard let self = self else { return nil }
+            return self.braveCore.walletProvider(with: self, isPrivateBrowsing: tab.isPrivate)
+        }
         downloadQueue.delegate = self
         
         // Observe some user preferences
@@ -1937,10 +1943,11 @@ extension BrowserViewController: TabDelegate {
         readerMode.delegate = self
         tab.addContentScript(readerMode, name: ReaderMode.name(), contentWorld: .defaultClient)
 
-        // only add the logins helper if the tab is not a private browsing tab
+        // only add the logins helper and wallet provider if the tab is not a private browsing tab
         if !tab.isPrivate {
             let logins = LoginsHelper(tab: tab, profile: profile)
             tab.addContentScript(logins, name: LoginsHelper.name(), contentWorld: .defaultClient)
+            tab.addContentScript(WalletProviderHelper(tab: tab), name: WalletProviderHelper.name(), contentWorld: .page)
         }
 
         let errorHelper = ErrorPageHelper(certStore: profile.certStore)
@@ -2239,6 +2246,7 @@ extension BrowserViewController: TabManagerDelegate {
         }
 
         updateInContentHomePanel(selected?.url as URL?)
+        updateURLBarWalletButton()
     }
 
     func tabManager(_ tabManager: TabManager, willAddTab tab: Tab) {
